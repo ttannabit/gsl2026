@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSL-2026 Tournament Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --primary: #1e3a8a;
+            --primary-light: #3b82f6;
+            --secondary: #0f172a;
+            --accent: #f59e0b;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #334155;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--secondary), var(--primary));
+            color: white;
+            padding: 2rem 1rem;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        header h1 { margin: 0; font-size: 2.5rem; letter-spacing: 1px; }
+        header p { margin: 0.5rem 0 0 0; opacity: 0.9; font-size: 1.1rem; }
+
+        .auth-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--accent);
+            color: var(--secondary);
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .auth-btn:hover { background: #d97706; }
+
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border);
+        }
+
+        .card h2 { margin-top: 0; color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
+
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; text-align: left; }
+        th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+        th { background-color: #f1f5f9; color: var(--secondary); font-weight: 600; }
+        tr:hover { background-color: #f8fafc; }
+
+        .matrix-table { text-align: center; }
+        .matrix-table th, .matrix-table td { text-align: center; }
+        .matrix-table td.self { background-color: #e2e8f0; color: #94a3b8; font-weight: bold; }
+        
+        .total-cell { font-weight: bold; background-color: #f0fdf4; color: #166534; }
+        .player-win-cell { font-weight: bold; background-color: #f0fdf4; color: #166534; text-align: center; }
+        .player-loss-cell { font-weight: bold; background-color: #fef2f2; color: #991b1b; text-align: center; }
+
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; overflow-x: auto; padding-bottom: 5px; }
+        .tab-btn {
+            background: #e2e8f0; border: none; padding: 0.75rem 1.5rem; border-radius: 8px;
+            cursor: pointer; font-weight: 600; color: var(--text); transition: all 0.2s ease; white-space: nowrap;
+        }
+        .tab-btn.active { background: var(--primary); color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .score-container { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
+        
+        .score-input {
+            width: 35px;
+            padding: 0.25rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .score-dash { font-weight: bold; color: #94a3b8; }
+        .status-banner { background: #e0f2fe; color: #0369a1; padding: 0.75rem; border-radius: 8px; margin-bottom: 1.5rem; font-weight: 600; display: none; text-align: center;}
+
+        /* Login Modal Styling */
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background-color: white; padding: 2rem; border-radius: 12px; max-width: 400px; width: 90%;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 1rem;
+        }
+        .modal-content h3 { margin: 0 0 0.5rem 0; color: var(--secondary); }
+        .modal-content input { padding: 0.7rem; border: 1px solid var(--border); border-radius: 6px; font-size: 1rem; }
+        .modal-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem; }
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .btn-submit { background: var(--primary); color: white; }
+        .btn-cancel { background: #cbd5e1; color: var(--text); }
+
+        @media (max-width: 768px) { table { display: block; overflow-x: auto; } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>GSL-2026 Tournament Central</h1>
+        <button id="authBtn" class="auth-btn" onclick="toggleAuth()">Admin Login</button>
+    </header>
+
+    <div class="container">
+        
+        <div id="statusBanner" class="status-banner">🔒 Viewing Mode </div>
+
+        <div class="card">
+            <h2>Overall Leaderboard Matrix (Total Games Won)</h2>
+            <table class="matrix-table" id="matrixTable">
+                <thead>
+                    <tr>
+                        <th>Teams</th>
+                        <th>Talented Titans</th>
+                        <th>Savage Warriors</th>
+                        <th>Butterfly Slicers</th>
+                        <th>Pingpong Masters</th>
+                        <th class="total-cell">Total Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr data-team="titans">
+                        <td style="text-align: left; font-weight: 600;">Talented Titans</td>
+                        <td class="self">X</td>
+                        <td data-vs="warriors" class="team-vs-score">0</td>
+                        <td data-vs="slicers" class="team-vs-score">0</td>
+                        <td data-vs="masters" class="team-vs-score">0</td>
+                        <td class="total-cell display-total">0</td>
+                    </tr>
+                    <tr data-team="warriors">
+                        <td style="text-align: left; font-weight: 600;">Savage Warriors</td>
+                        <td data-vs="titans" class="team-vs-score">0</td>
+                        <td class="self">X</td>
+                        <td data-vs="slicers" class="team-vs-score">0</td>
+                        <td data-vs="masters" class="team-vs-score">0</td>
+                        <td class="total-cell display-total">0</td>
+                    </tr>
+                    <tr data-team="slicers">
+                        <td style="text-align: left; font-weight: 600;">Butterfly Slicers</td>
+                        <td data-vs="titans" class="team-vs-score">0</td>
+                        <td data-vs="warriors" class="team-vs-score">0</td>
+                        <td class="self">X</td>
+                        <td data-vs="masters" class="team-vs-score">0</td>
+                        <td class="total-cell display-total">0</td>
+                    </tr>
+                    <tr data-team="masters">
+                        <td style="text-align: left; font-weight: 600;">Pingpong Masters</td>
+                        <td data-vs="titans" class="team-vs-score">0</td>
+                        <td data-vs="warriors" class="team-vs-score">0</td>
+                        <td data-vs="slicers" class="team-vs-score">0</td>
+                        <td class="self">X</td>
+                        <td class="total-cell display-total">0</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Fixtures & Score Entry</h2>
+            
+            <div class="tabs">
+                <button class="tab-btn active" onclick="openTab(event, 'titans')">Talented Titans</button>
+                <button class="tab-btn" onclick="openTab(event, 'warriors')">Savage Warriors</button>
+                <button class="tab-btn" onclick="openTab(event, 'slicers')">Butterfly Slicers</button>
+                <button class="tab-btn" onclick="openTab(event, 'masters')">Pingpong Masters</button>
+            </div>
+
+            <div id="titans" class="tab-content active">
+                <table>
+                    <thead><tr><th>Category</th><th>Players</th><th>vs Savage Warriors (Sat 9.0)</th><th>vs Butterfly Slicers (Sat 6.0)</th><th>vs Pingpong Masters (Sun 9.0)</th><th class="player-win-cell">Wins</th><th class="player-loss-cell">Losses</th></tr></thead>
+                    <tbody data-team="titans"></tbody>
+                </table>
+            </div>
+            <div id="warriors" class="tab-content">
+                <table>
+                    <thead><tr><th>Category</th><th>Players</th><th>vs Talented Titans (Sat 9.0)</th><th>vs Butterfly Slicers (Sat 2.0)</th><th>vs Pingpong Masters (Sat 6.0)</th><th class="player-win-cell">Wins</th><th class="player-loss-cell">Losses</th></tr></thead>
+                    <tbody data-team="warriors"></tbody>
+                </table>
+            </div>
+            <div id="slicers" class="tab-content">
+                <table>
+                    <thead><tr><th>Category</th><th>Players</th><th>vs Talented Titans (Sat 6.0)</th><th>vs Savage Warriors (Sat 2.0)</th><th>vs Pingpong Masters (Sat 9.0)</th><th class="player-win-cell">Wins</th><th class="player-loss-cell">Losses</th></tr></thead>
+                    <tbody data-team="slicers"></tbody>
+                </table>
+            </div>
+            <div id="masters" class="tab-content">
+                <table>
+                    <thead><tr><th>Category</th><th>Players</th><th>vs Talented Titans (Sun 9.0)</th><th>vs Savage Warriors (Sat 6.0)</th><th>vs Butterfly Slicers (Sat 9.0)</th><th class="player-win-cell">Wins</th><th class="player-loss-cell">Losses</th></tr></thead>
+                    <tbody data-team="masters"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h3>Admin System Access</h3>
+            <input type="email" id="loginEmail" placeholder="Email Address">
+            <input type="password" id="loginPassword" placeholder="Password">
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeLoginModal()">Cancel</button>
+                <button class="btn btn-submit" onclick="submitLogin()">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // REPLACE THESE WITH YOUR EXPLICIT PROJECT CONFIG VALUES FROM YOUR SUPABASE PROJECT SETTINGS
+        const SUPABASE_URL = "https://epyrskrpztxltkifkomj.supabase.co";
+        const SUPABASE_ANON_KEY = "sb_publishable_zWECqZdWiqWHfnwvF0qW6w_AwiwK8Lx";
+        
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let currentSession = null;
+
+        function openTab(evt, tabId) {
+            let tabcontent = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabcontent.length; i++) { tabcontent[i].style.display = "none"; }
+            let tablinks = document.getElementsByClassName("tab-btn");
+            for (let i = 0; i < tablinks.length; i++) { tablinks[i].classList.remove("active"); }
+            document.getElementById(tabId).style.display = "block";
+            evt.currentTarget.classList.add("active");
+        }
+
+        const matchCategories = [
+            { id: 0, label: "Elite B" }, { id: 1, label: "Elite A & Elite C" }, { id: 2, label: "Veterans" },
+            { id: 3, label: "Mixed A & Mixed B" }, { id: 4, label: "Elite A" }, { id: 5, label: "Veterans & Elite B" },
+            { id: 6, label: "Elite C" }, { id: 7, label: "Mixed B" }, { id: 8, label: "Elite A & Elite B" },
+            { id: 9, label: "Mixed A" }, { id: 10, label: "Elite C & Veterans" }
+        ];
+
+        const rosters = {
+            titans: ["Armaan", "Dhuv J / Dhruv S", "Ojas", "Tejas / Karan", "Dhruv J", "Ojas / Armaan", "Dhruv S", "Karan", "Dhuv J / Armaan", "Tejas", "Dhruv S / Ojas"],
+            warriors: ["Keisha J", "Abhay & Aarish", "Kushal S", "Krisha & Anmol", "Abhay M", "Kushal & Keisha", "Aarish T", "Anmol J", "Abhay & Keisha", "Krisha T", "Aarish & Kushal"],
+            slicers: ["Abhay K", "Ojas & Aryan", "Vinay B", "Vishal & Miten", "Ojas C", "Vinay & Abhay", "Aryan S", "Miten K", "Oajs & Abhay", "Vishal J", "Aryan & Vinay"],
+            masters: ["Siddharth S", "Sharad & Sayaan", "Naresh S", "Charmi & Shanaya", "Sharad G", "Naresh & Siddharth", "Sayaan J", "Shanaya P", "Sharad & Siddharth", "Charmi S", "Sayaan & Naresh"]
+        };
+
+        const opponentsMap = {
+            titans:   { opponents: ["warriors", "slicers", "masters"] },
+            warriors: { opponents: ["titans", "slicers", "masters"] },
+            slicers:  { opponents: ["titans", "warriors", "masters"] },
+            masters:  { opponents: ["titans", "warriors", "slicers"] }
+        };
+
+        const uniqueMatchPairs = [
+            { t1: "titans", t2: "warriors" }, { t1: "titans", t2: "slicers" }, { t1: "titans", t2: "masters" },
+            { t1: "warriors", t2: "slicers" }, { t1: "warriors", t2: "masters" }, { t1: "slicers", t2: "masters" }
+        ];
+
+        function renderAllTables() {
+            Object.keys(opponentsMap).forEach(team => {
+                const tbody = document.querySelector(`tbody[data-team="${team}"]`);
+                let html = "";
+                matchCategories.forEach((cat, idx) => {
+                    const opps = opponentsMap[team].opponents;
+                    html += `<tr>
+                        <td><strong>${cat.label}</strong></td>
+                        <td>${rosters[team][idx]}</td>
+                        ${opps.map(opp => {
+                            const key = [team, opp].sort().join("_") + `_cat_${cat.id}`;
+                            return `<td>
+                                ${rosters[opp][idx]}<br>
+                                <div class="score-container">
+                                    <input type="number" class="score-input input-team-${team}" data-match="${key}" data-team="${team}" data-opp="${opp}" data-cat="${cat.id}" disabled>
+                                    <span class="score-dash">-</span>
+                                    <input type="number" class="score-input input-opp-${team}" data-match="${key}" data-team="${team}" data-opp="${opp}" data-cat="${cat.id}" disabled>
+                                </div>
+                            </td>`;
+                        }).join("")}
+                        <td class="player-win-cell" id="win_${team}_${cat.id}">0</td>
+                        <td class="player-loss-cell" id="loss_${team}_${cat.id}">0</td>
+                    </tr>`;
+                });
+                tbody.innerHTML = html;
+            });
+        }
+
+        function calculateTournament() {
+            let matrixScores = {
+                titans: { warriors: 0, slicers: 0, masters: 0 },
+                warriors: { titans: 0, slicers: 0, masters: 0 },
+                slicers: { titans: 0, warriors: 0, masters: 0 },
+                masters: { titans: 0, warriors: 0, slicers: 0 }
+            };
+
+            let stats = { titans: {}, warriors: {}, slicers: {}, masters: {} };
+            Object.keys(stats).forEach(t => { stats[t].wins = Array(11).fill(0); stats[t].losses = Array(11).fill(0); });
+
+            uniqueMatchPairs.forEach(pair => {
+                matchCategories.forEach(cat => {
+                    const sourcePanel = document.getElementById(pair.t1);
+                    const inp1 = sourcePanel.querySelector(`.input-team-${pair.t1}[data-opp="${pair.t2}"][data-cat="${cat.id}"]`);
+                    const inp2 = sourcePanel.querySelector(`.input-opp-${pair.t1}[data-opp="${pair.t2}"][data-cat="${cat.id}"]`);
+                    
+                    if (inp1 && inp2) {
+                        let score1 = parseInt(inp1.value) || 0;
+                        let score2 = parseInt(inp2.value) || 0;
+                        matrixScores[pair.t1][pair.t2] += score1;
+                        matrixScores[pair.t2][pair.t1] += score2;
+                        stats[pair.t1].wins[cat.id] += score1;
+                        stats[pair.t1].losses[cat.id] += score2;
+                        stats[pair.t2].wins[cat.id] += score2;
+                        stats[pair.t2].losses[cat.id] += score1;
+                    }
+                });
+            });
+
+            Object.keys(stats).forEach(t => {
+                matchCategories.forEach(cat => {
+                    document.getElementById(`win_${t}_${cat.id}`).innerText = stats[t].wins[cat.id];
+                    document.getElementById(`loss_${t}_${cat.id}`).innerText = stats[t].losses[cat.id];
+                });
+            });
+
+            let teamsList = ['titans', 'warriors', 'slicers', 'masters'];
+            teamsList.forEach(rowTeam => {
+                let rowEl = document.querySelector(`tr[data-team="${rowTeam}"]`);
+                let grandTotal = 0;
+                teamsList.forEach(colTeam => {
+                    if (rowTeam !== colTeam) {
+                        let score = matrixScores[rowTeam][colTeam];
+                        rowEl.querySelector(`td[data-vs="${colTeam}"]`).innerText = score;
+                        grandTotal += score;
+                    }
+                });
+                rowEl.querySelector('.display-total').innerText = grandTotal;
+            });
+        }
+
+        function setupLiveMirroring() {
+            document.querySelectorAll('.score-input').forEach(input => {
+                input.addEventListener('input', async (e) => {
+                    const team = e.target.getAttribute('data-team');
+                    const opp = e.target.getAttribute('data-opp');
+                    const catId = e.target.getAttribute('data-cat');
+                    const matchKey = e.target.getAttribute('data-match');
+                    const value = e.target.value;
+                    const isLeftInput = e.target.classList.contains(`input-team-${team}`);
+
+                    let finalLeftVal = 0;
+                    let finalRightVal = 0;
+
+                    if (isLeftInput) {
+                        const target = document.querySelector(`.input-opp-${opp}[data-opp="${team}"][data-cat="${catId}"]`);
+                        if(target) target.value = value;
+                        const clones = document.querySelectorAll(`.input-team-${team}[data-opp="${opp}"][data-cat="${catId}"]`);
+                        clones.forEach(c => c.value = value);
+                        
+                        finalLeftVal = parseInt(value) || 0;
+                        const counterpart = document.querySelector(`.input-opp-${team}[data-opp="${opp}"][data-cat="${catId}"]`);
+                        finalRightVal = parseInt(counterpart.value) || 0;
+                    } else {
+                        const target = document.querySelector(`.input-team-${opp}[data-opp="${team}"][data-cat="${catId}"]`);
+                        if(target) target.value = value;
+                        const clones = document.querySelectorAll(`.input-opp-${team}[data-opp="${opp}"][data-cat="${catId}"]`);
+                        clones.forEach(c => c.value = value);
+
+                        finalRightVal = parseInt(value) || 0;
+                        const counterpart = document.querySelector(`.input-team-${team}[data-opp="${opp}"][data-cat="${catId}"]`);
+                        finalLeftVal = parseInt(counterpart.value) || 0;
+                    }
+
+                    calculateTournament();
+
+                    // Push scores live to cloud table database if authenticated
+                    if (currentSession) {
+                        // Normalize database writing directions based on alphabetical key pairings
+                        const isNormalized = team < opp;
+                        const dbScore1 = isNormalized ? finalLeftVal : finalRightVal;
+                        const dbScore2 = isNormalized ? finalRightVal : finalLeftVal;
+
+                        await supabaseClient
+                            .from('gsl_matches')
+                            .upsert({ id: matchKey, score_1: dbScore1, score_2: dbScore2 });
+                    }
+                });
+            });
+        }
+
+        // Fetch values straight down from Supabase server infrastructure 
+        async function fetchLiveScores() {
+            const { data, error } = await supabaseClient.from('gsl_matches').select('*');
+            if (!error && data) {
+                data.forEach(match => {
+                    const inputs = document.querySelectorAll(`input[data-match="${match.id}"]`);
+                    inputs.forEach(input => {
+                        const t = input.getAttribute('data-team');
+                        const o = input.getAttribute('data-opp');
+                        const isLeft = input.classList.contains(`input-team-${t}`);
+                        
+                        if (t < o) {
+                            input.value = isLeft ? match.score_1 : match.score_2;
+                        } else {
+                            input.value = isLeft ? match.score_2 : match.score_1;
+                        }
+                    });
+                });
+                calculateTournament();
+            }
+        }
+
+        // AUTHENTICATION LOGIC BLOCKS
+        async function checkInitialAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            handleSessionChange(session);
+        }
+
+        function handleSessionChange(session) {
+            currentSession = session;
+            const banner = document.getElementById('statusBanner');
+            const authBtn = document.getElementById('authBtn');
+            
+            if (session) {
+                banner.innerText = "⚡ Admin Editing Mode Active (Changes Save Instantly)";
+                banner.style.background = "#dcfce7";
+                banner.style.color = "#15803d";
+                authBtn.innerText = "Logout";
+                setFieldsDisabled(false);
+            } else {
+                banner.innerText = "🔒 Viewing Mode (Read-Only)";
+                banner.style.background = "#e0f2fe";
+                banner.style.color = "#0369a1";
+                authBtn.innerText = "Admin Login";
+                setFieldsDisabled(true);
+            }
+            banner.style.display = "block";
+        }
+
+        function setFieldsDisabled(disabled) {
+            document.querySelectorAll('.score-input').forEach(input => {
+                input.disabled = disabled;
+                input.style.border = disabled ? "none" : "1px solid var(--border)";
+                input.style.background = disabled ? "transparent" : "white";
+            });
+        }
+
+        async function toggleAuth() {
+            if (currentSession) {
+                await supabaseClient.auth.signOut();
+                handleSessionChange(null);
+            } else {
+                document.getElementById('loginModal').style.display = 'flex';
+            }
+        }
+
+        function closeLoginModal() { document.getElementById('loginModal').style.display = 'none'; }
+
+        async function submitLogin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            
+            if (error) {
+                alert("Auth Error: " + error.message);
+            } else {
+                handleSessionChange(data.session);
+                closeLoginModal();
+            }
+        }
+
+        // Initial launch sequence execution on viewport window frame lifecycle mount
+        renderAllTables();
+        setupLiveMirroring();
+        checkInitialAuth();
+        fetchLiveScores();
+    </script>
+</body>
+</html>
